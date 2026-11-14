@@ -1,4 +1,4 @@
-const C="issap-v1";
+const C="issap-v2";
 const FILES=["./","index.html","manifest.webmanifest","icon-180.png","icon-192.png","icon-512.png","bank/d1.js","bank/d2.js","bank/d3.js","bank/d4.js","bank/d5.js","bank/d6.js"];
 self.addEventListener("install",e=>{e.waitUntil(caches.open(C).then(c=>c.addAll(FILES)));self.skipWaiting();});
 self.addEventListener("activate",e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==C).map(x=>caches.delete(x)))));self.clients.claim();});
