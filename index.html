@@ -226,6 +226,7 @@ function renderBackup(){
 function fmt(ms){ ms=Math.max(0,ms); const m=Math.floor(ms/60000), s=Math.floor(ms%60000/1000); return m+":"+String(s).padStart(2,"0"); }
 
 function renderQuestion(){
+  clearInterval(timerH);
   const it=S.items[S.i], q=byId[it.id], sel=S.ans[S.i]||[], multi=q.a.length>1, checked=S.checked[S.i];
   const exam=S.mode==="exam", study=exam&&S.study;
   const answered=Object.keys(S.ans).filter(k=>S.ans[k]&&S.ans[k].length).length;
