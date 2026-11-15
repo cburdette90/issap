@@ -98,8 +98,8 @@ const DOMAINS = {
 // d=domain, q=question, o=options, a=correct option indexes, e=explanation
 // ---------- storage (fail-safe) ----------
 const KEY="issap-practice-v1", SKEY="issap-session-v1";
-let mem = {stats:{}, exams:[], size:10};
-function load(){ try{ const r=localStorage.getItem(KEY); if(r){ const p=JSON.parse(r); mem={stats:p.stats||{},exams:p.exams||[],size:p.size||10}; } }catch(e){} }
+let mem = {stats:{}, exams:[], size:10, study:false};
+function load(){ try{ const r=localStorage.getItem(KEY); if(r){ const p=JSON.parse(r); mem={stats:p.stats||{},exams:p.exams||[],size:p.size||10,study:!!p.study}; } }catch(e){} }
 function save(){ try{ localStorage.setItem(KEY, JSON.stringify(mem)); }catch(e){} }
 function saveSession(){ try{ if(S) localStorage.setItem(SKEY, JSON.stringify(S)); else localStorage.removeItem(SKEY);}catch(e){} }
 function loadSession(){ try{ const r=localStorage.getItem(SKEY); return r?JSON.parse(r):null; }catch(e){ return null; } }
@@ -131,12 +131,12 @@ function startExam(){
   let ids=[];
   for(const d in DOMAINS){ ids=ids.concat(shuffle(BANK.filter(q=>q.d==d).map(q=>q.id)).slice(0,DOMAINS[d].n)); }
   ids=shuffle(ids);
-  S={mode:"exam",items:ids.map(makeItem),i:0,ans:{},flags:{},checked:{},endAt:Date.now()+180*60*1000,title:"Full exam"};
+  S={mode:"exam",study:!!mem.study,items:ids.map(makeItem),i:0,ans:{},flags:{},checked:{},endAt:Date.now()+180*60*1000,title:"Full exam"};
   saveSession(); render();
 }
 function startMini(){
   const ids=pick5(BANK.map(q=>q.id));
-  S={mode:"exam",mini:true,items:ids.map(makeItem),i:0,ans:{},flags:{},checked:{},endAt:Date.now()+7*60*1000,title:"5-question test"};
+  S={mode:"exam",mini:true,study:!!mem.study,items:ids.map(makeItem),i:0,ans:{},flags:{},checked:{},endAt:Date.now()+7*60*1000,title:"5-question test"};
   saveSession(); render();
 }
 function pick5(ids){
@@ -177,11 +177,14 @@ function renderHome(){
   <h1>ISC2 ISSAP Practice</h1>
   <p class="sub">Information Systems Security Architecture Professional &middot; ${BANK.length} questions &middot; weighted to the ISC2 exam outline</p>
   <div class="grid">
-    <button class="big primary" id="bExam"><b>Full practice exam</b><span style="color:inherit;opacity:.85">125 questions &middot; 3 hr timer &middot; scored at the end</span></button>
-    <button class="big" id="bMini"><b>5-question test</b><span>Timed (7 min), scored at the end, unseen first</span></button>
+    <button class="big primary" id="bExam"><b>Full practice exam</b><span style="color:inherit;opacity:.85">125 questions &middot; ${mem.study?"study mode, no timer, answers as you go":"3 hr timer &middot; scored at the end"}</span></button>
+    <button class="big" id="bMini"><b>5-question test</b><span>${mem.study?"No timer, answers as you go":"Timed (7 min), scored at the end"}, unseen first</span></button>
     <button class="big" id="bQuick"><b>Quick practice</b><span>${mem.size?mem.size+" questions":"Every question"}, unseen first, answers shown as you go</span></button>
     <button class="big" id="bMiss" ${m?"":"disabled"}><b>Missed questions</b><span>${m} to review${m&&mem.size&&m>mem.size?" &middot; "+mem.size+" at a time":""}</span></button>
   </div>
+  <h2>Exam mode</h2>
+  <div class="card"><div class="chips" id="rules"><button data-r="0" class="${!mem.study?'on':''}">Exam</button><button data-r="1" class="${mem.study?'on':''}">Study</button></div>
+  <p class="note" style="margin-bottom:0">Exam is timed and scored at the end. Study has no timer and shows the answer and explanation after each question. Applies to the full exam and the 5-question test.</p></div>
   <h2>Questions per practice session</h2>
   <div class="card"><div class="chips" id="sizes">${SIZES.map(n=>`<button data-n="${n}" class="${(mem.size||0)===n?'on':''}">${sizeLbl(n)}</button>`).join("")}</div>
   <p class="note" style="margin-bottom:0">Applies to quick practice, domain drills, and missed questions. Questions you haven't seen come first, then ones you missed.</p></div>
@@ -199,10 +202,11 @@ function renderHome(){
   </div>
   <p class="note">The real exam needs 700/1000. Aim for 75%+ here before booking; ISC2 questions reward the BEST answer from a management and architecture view, not the most technical one. Questions are original study material, not exam dumps.</p>`;
   document.querySelectorAll("#sizes [data-n]").forEach(b=>b.onclick=()=>{mem.size=+b.dataset.n;save();render();});
+  document.querySelectorAll("#rules [data-r]").forEach(b=>b.onclick=()=>{mem.study=b.dataset.r==="1";save();render();});
   $("#bExam").onclick=startExam; $("#bMini").onclick=startMini; $("#bQuick").onclick=quick; $("#bMiss").onclick=missed;
   document.querySelectorAll("[data-d]").forEach(a=>a.onclick=e=>{e.preventDefault();drill(a.dataset.d);});
   $("#bBackup").onclick=renderBackup;
-  $("#bReset").onclick=()=>showModal("Clear all stats and exam history?",[["Cancel",closeModal],["Clear",()=>{mem={stats:{},exams:[],size:mem.size};save();closeModal();render();}]]);
+  $("#bReset").onclick=()=>showModal("Clear all stats and exam history?",[["Cancel",closeModal],["Clear",()=>{mem={stats:{},exams:[],size:mem.size,study:mem.study};save();closeModal();render();}]]);
 }
 
 function renderBackup(){
@@ -216,21 +220,21 @@ function renderBackup(){
   <div class="row"><button id="bRestore" class="primary">Restore</button><span id="rmsg" class="small"></span></div></div>`;
   $("#bBack").onclick=render;
   $("#bCopy").onclick=async()=>{ const t=$("#out"); try{ await navigator.clipboard.writeText(t.value); $("#cmsg").textContent="Copied."; }catch(e){ t.select(); $("#cmsg").textContent="Selected. Copy it manually."; } };
-  $("#bRestore").onclick=()=>{ try{ const p=JSON.parse($("#in").value); if(!p||typeof p.stats!=="object") throw 0; mem={stats:p.stats,exams:p.exams||[],size:p.size||mem.size||10}; save(); $("#rmsg").textContent="Restored."; $("#rmsg").className="small pass"; }catch(e){ $("#rmsg").textContent="That doesn't look like a valid backup."; $("#rmsg").className="small fail"; } };
+  $("#bRestore").onclick=()=>{ try{ const p=JSON.parse($("#in").value); if(!p||typeof p.stats!=="object") throw 0; mem={stats:p.stats,exams:p.exams||[],size:p.size||mem.size||10,study:!!p.study}; save(); $("#rmsg").textContent="Restored."; $("#rmsg").className="small pass"; }catch(e){ $("#rmsg").textContent="That doesn't look like a valid backup."; $("#rmsg").className="small fail"; } };
 }
 
 function fmt(ms){ ms=Math.max(0,ms); const m=Math.floor(ms/60000), s=Math.floor(ms%60000/1000); return m+":"+String(s).padStart(2,"0"); }
 
 function renderQuestion(){
   const it=S.items[S.i], q=byId[it.id], sel=S.ans[S.i]||[], multi=q.a.length>1, checked=S.checked[S.i];
-  const exam=S.mode==="exam";
+  const exam=S.mode==="exam", study=exam&&S.study;
   const answered=Object.keys(S.ans).filter(k=>S.ans[k]&&S.ans[k].length).length;
   $("#app").innerHTML=`
   <div class="top">
     <button id="bQuit">&times;</button>
     <span class="small"><b>${S.i+1}</b> / ${S.items.length}</span>
     <span class="spacer"></span>
-    ${exam?`<span class="timer" id="tmr"></span>`:`<span class="small muted">${esc(S.title)}</span>`}
+    ${exam&&!study?`<span class="timer" id="tmr"></span>`:`<span class="small muted">${esc(S.title)}</span>`}
   </div>
   <span class="tag">${q.d}.0 ${DOMAINS[q.d].name}</span> ${multi?`<span class="tag">Choose ${q.a.length}</span>`:""}
   <div class="qtext">${qhtml(q.q)}</div>
@@ -242,7 +246,8 @@ function renderQuestion(){
   ${checked?`<div class="explain"><span class="verdict ${isRight(it.id,sel)?'ok':'no'}">${isRight(it.id,sel)?"Correct.":"Not quite."}</span> ${esc(q.e)}</div>`:""}
   <div class="row" style="margin-top:14px">
     ${exam?`<button id="bPrev" ${S.i?"":"disabled"}>Prev</button><button id="bFlag">${S.flags[S.i]?"Unflag":"Flag"}</button><span class="spacer"></span>
-      ${S.i<S.items.length-1?`<button id="bNext" class="primary">Next</button>`:`<button id="bSubmit" class="primary">Submit exam</button>`}`
+      ${study&&!checked?`<button id="bCheck" class="primary" ${sel.length===q.a.length?"":"disabled"}>Check</button>`:""}
+      ${S.i<S.items.length-1?`<button id="bNext" class="${study&&!checked?"":"primary"}">Next</button>`:`<button id="bSubmit" class="${study&&!checked?"":"primary"}">Submit exam</button>`}`
     :`${Object.keys(S.checked).length?`<button id="bEnd">End &amp; score</button>`:""}<span class="spacer"></span>${checked?(S.i<S.items.length-1?`<button id="bNext" class="primary">Next</button>`:`<button id="bFinish" class="primary">Finish</button>`):`<button id="bCheck" class="primary" ${sel.length===q.a.length?"":"disabled"}>Check</button>`}`}
   </div>
   ${exam?`<div class="card small"><div class="row"><span class="muted">${answered} answered &middot; ${Object.values(S.flags).filter(Boolean).length} flagged</span><span class="spacer"></span><button id="bSub2">Submit</button></div>
@@ -258,14 +263,14 @@ function renderQuestion(){
   if($("#bNext")) $("#bNext").onclick=()=>go(S.i+1);
   if($("#bPrev")) $("#bPrev").onclick=()=>go(S.i-1);
   if($("#bFlag")) $("#bFlag").onclick=()=>{S.flags[S.i]=!S.flags[S.i];saveSession();renderQuestion();};
-  if($("#bCheck")) $("#bCheck").onclick=()=>{S.checked[S.i]=true; record(it.id,isRight(it.id,sel)); save(); saveSession(); renderQuestion();};
+  if($("#bCheck")) $("#bCheck").onclick=()=>{S.checked[S.i]=true; if(!exam){ record(it.id,isRight(it.id,sel)); save(); } saveSession(); renderQuestion();};
   if($("#bFinish")) $("#bFinish").onclick=finish;
   if($("#bEnd")) $("#bEnd").onclick=finish;
   const sub=()=>{ const un=S.items.length-answered; showModal(un?`${un} question${un>1?"s are":" is"} unanswered. Submit anyway?`:"Submit your exam?",[["Keep going",closeModal],["Submit",()=>{closeModal();finish();}]]); };
   if($("#bSubmit")) $("#bSubmit").onclick=sub;
   if($("#bSub2")) $("#bSub2").onclick=sub;
   document.querySelectorAll(".nav [data-j]").forEach(b=>b.onclick=()=>go(+b.dataset.j));
-  if(exam){
+  if(exam&&!study){
     const tick=()=>{ const left=S.endAt-Date.now(); const t=$("#tmr"); if(t){ t.textContent=fmt(left); t.classList.toggle("low",left<5*60000);} if(left<=0){ clearInterval(timerH); finish(); } };
     tick(); timerH=setInterval(tick,1000);
   }
@@ -310,7 +315,7 @@ function renderResults(){
 
 // resume an in-progress session after refresh
 S=loadSession();
-if(S && S.mode==="exam" && !S.done && Date.now()>S.endAt){ finish(); }
+if(S && S.mode==="exam" && !S.done && !(S.study||S.strict===false) && Date.now()>S.endAt){ finish(); }
 render();
 if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js").catch(()=>{}); }
 </script>
