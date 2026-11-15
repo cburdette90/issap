@@ -134,6 +134,15 @@ function startExam(){
   S={mode:"exam",items:ids.map(makeItem),i:0,ans:{},flags:{},checked:{},endAt:Date.now()+180*60*1000,title:"Full exam"};
   saveSession(); render();
 }
+function startMini(){
+  const ids=pick5(BANK.map(q=>q.id));
+  S={mode:"exam",mini:true,items:ids.map(makeItem),i:0,ans:{},flags:{},checked:{},endAt:Date.now()+7*60*1000,title:"5-question test"};
+  saveSession(); render();
+}
+function pick5(ids){
+  const score=id=>{const t=mem.stats[id]; if(!t) return 0; if(t.w) return 1; return 2+t.c/t.s;};
+  return shuffle(ids).sort((a,b)=>score(a)-score(b)).slice(0,5);
+}
 function startPractice(ids,title,kind){
   if(!ids.length){ showModal("Nothing to practice here yet.",[["OK",closeModal]]); return; }
   S={mode:"practice",items:shuffle(ids).map(makeItem),i:0,ans:{},flags:{},checked:{},title,kind:kind||null};
@@ -143,7 +152,7 @@ function quick(){ startPractice(pick(BANK.map(q=>q.id)),"Quick practice",{t:"qui
 function drill(d){ startPractice(pick(BANK.filter(q=>q.d==d).map(q=>q.id)),DOMAINS[d].name,{t:"drill",d}); }
 function missed(){ startPractice(pick(missedIds()),"Missed questions",{t:"missed"}); }
 function nextSet(k){ S=null; if(k.t==="drill") drill(k.d); else if(k.t==="missed") missed(); else quick(); }
-const SIZES=[10,20,50,0];
+const SIZES=[5,10,20,50,0];
 const sizeLbl=n=>n?String(n):"All";
 
 // ---------- modal ----------
@@ -169,6 +178,7 @@ function renderHome(){
   <p class="sub">Information Systems Security Architecture Professional &middot; ${BANK.length} questions &middot; weighted to the ISC2 exam outline</p>
   <div class="grid">
     <button class="big primary" id="bExam"><b>Full practice exam</b><span style="color:inherit;opacity:.85">125 questions &middot; 3 hr timer &middot; scored at the end</span></button>
+    <button class="big" id="bMini"><b>5-question test</b><span>Timed (7 min), scored at the end, unseen first</span></button>
     <button class="big" id="bQuick"><b>Quick practice</b><span>${mem.size?mem.size+" questions":"Every question"}, unseen first, answers shown as you go</span></button>
     <button class="big" id="bMiss" ${m?"":"disabled"}><b>Missed questions</b><span>${m} to review${m&&mem.size&&m>mem.size?" &middot; "+mem.size+" at a time":""}</span></button>
   </div>
@@ -189,7 +199,7 @@ function renderHome(){
   </div>
   <p class="note">The real exam needs 700/1000. Aim for 75%+ here before booking; ISC2 questions reward the BEST answer from a management and architecture view, not the most technical one. Questions are original study material, not exam dumps.</p>`;
   document.querySelectorAll("#sizes [data-n]").forEach(b=>b.onclick=()=>{mem.size=+b.dataset.n;save();render();});
-  $("#bExam").onclick=startExam; $("#bQuick").onclick=quick; $("#bMiss").onclick=missed;
+  $("#bExam").onclick=startExam; $("#bMini").onclick=startMini; $("#bQuick").onclick=quick; $("#bMiss").onclick=missed;
   document.querySelectorAll("[data-d]").forEach(a=>a.onclick=e=>{e.preventDefault();drill(a.dataset.d);});
   $("#bBackup").onclick=renderBackup;
   $("#bReset").onclick=()=>showModal("Clear all stats and exam history?",[["Cancel",closeModal],["Clear",()=>{mem={stats:{},exams:[],size:mem.size};save();closeModal();render();}]]);
@@ -272,7 +282,7 @@ function finish(){
   });
   const n=Object.values(per).reduce((a,b)=>a+b.n,0);
   S.result={c,n,p:n?Math.round(c/n*100):0,per};
-  if(S.mode==="exam") mem.exams.push({t:Date.now(),c,n,p:S.result.p});
+  if(S.mode==="exam"&&!S.mini) mem.exams.push({t:Date.now(),c,n,p:S.result.p});
   save(); S.done=true; saveSession(); render(); window.scrollTo(0,0);
 }
 
@@ -291,11 +301,11 @@ function renderResults(){
     <div class="small">Your answer: <span class="${ok?'pass':'fail'}">${sel.length?sel.map(i=>esc(q.o[i])).join("; "):"(none)"}</span></div>
     ${ok?"":`<div class="small">Correct: <span class="pass">${q.a.map(i=>esc(q.o[i])).join("; ")}</span></div>`}
     <div class="small muted" style="margin-top:4px">${esc(q.e)}</div></div>`}).join(""):`<p class="muted">Nothing missed. Nice.</p>`}</div>
-  <div class="row">${S.kind?`<button id="bNextSet" class="primary">Next ${mem.size||"set"}</button><button id="bAgain">Retry these</button>`:`<button id="bAgain" class="primary">${S.mode==="exam"?"New exam":"Practice again"}</button>`}</div>`;
+  <div class="row">${S.kind?`<button id="bNextSet" class="primary">Next ${mem.size||"set"}</button><button id="bAgain">Retry these</button>`:`<button id="bAgain" class="primary">${S.mini?"Another 5":S.mode==="exam"?"New exam":"Practice again"}</button>`}</div>`;
   if($("#bNextSet")) $("#bNextSet").onclick=()=>nextSet(S.kind);
   $("#bHome").onclick=()=>{S=null;saveSession();render();};
   $("#bToggle").onclick=()=>{S.wrongOnly=!wrongOnly;renderResults();};
-  $("#bAgain").onclick=()=>{ const m=S.mode, ids=S.items.map(i=>i.id), t=S.title, k=S.kind; S=null; if(m==="exam") startExam(); else startPractice(ids,t,k); };
+  $("#bAgain").onclick=()=>{ const m=S.mode, mini=S.mini, ids=S.items.map(i=>i.id), t=S.title, k=S.kind; S=null; if(mini) startMini(); else if(m==="exam") startExam(); else startPractice(ids,t,k); };
 }
 
 // resume an in-progress session after refresh

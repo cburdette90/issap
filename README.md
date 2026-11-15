@@ -14,7 +14,8 @@ An offline-capable practice app for the ISC2 ISSAP (Information Systems Security
   | 6. Security Operations Architecture | 18% | 90 | 23 |
 
 - **Full practice exam**: 125 questions, 3-hour timer, flag and review, scored at the end (the real pass mark is 700/1000, so aim for 75%+ here).
-- **Quick practice / domain drills / missed questions**: 10, 20, 50, or all at a time, unseen questions first, explanation after each answer.
+- **5-question test**: timed (7 min), scored at the end.
+- **Quick practice / domain drills / missed questions**: 5, 10, 20, 50, or all at a time, unseen questions first, explanation after each answer.
 - Progress is saved in the browser, with backup and restore as copy-paste text.
 - Installable as a home-screen app (PWA) and works offline after the first load.
 
