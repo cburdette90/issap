@@ -71,6 +71,16 @@ textarea{width:100%;min-height:140px;font:12px/1.4 ui-monospace,Menlo,monospace;
 .rev{border-top:1px solid var(--line);padding:12px 0}
 .rev:first-child{border-top:0}
 .note{font-size:.8rem;color:var(--muted)}
+input.fld{display:block;width:100%;font:inherit;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:6px 0 10px;background:var(--bg);color:var(--ink)}
+label.small{display:block;margin-top:4px}
+.auth{max-width:400px;margin:40px auto 0}
+.err{color:var(--bad);font-size:.88rem;min-height:1.2em}
+.link{background:none;border:0;padding:0;color:var(--brand);text-decoration:underline;font-size:.88rem}
+.utbl{width:100%;border-collapse:collapse;font-size:.85rem}
+.utbl th,.utbl td{text-align:left;padding:8px 6px;border-top:1px solid var(--line);vertical-align:top}
+.utbl th{border-top:0;color:var(--muted);font-weight:600}
+.utbl tr.click{cursor:pointer}
+.tblwrap{overflow-x:auto}
 </style>
 </head>
 <body>
@@ -85,6 +95,7 @@ const BANK=[];
 <script src="bank/d4.js"></script>
 <script src="bank/d5.js"></script>
 <script src="bank/d6.js"></script>
+<script src="firebase-config.js"></script>
 <script>
 const DOMAINS = {
   1:{name:"Architect for Governance, Compliance and Risk Management", w:17, n:21},
@@ -97,13 +108,18 @@ const DOMAINS = {
 // BANK is filled by bank/d1.js ... bank/d6.js
 // d=domain, q=question, o=options, a=correct option indexes, e=explanation
 // ---------- storage (fail-safe) ----------
-const KEY="issap-practice-v1", SKEY="issap-session-v1";
-let mem = {stats:{}, exams:[], size:10, study:false};
-function load(){ try{ const r=localStorage.getItem(KEY); if(r){ const p=JSON.parse(r); mem={stats:p.stats||{},exams:p.exams||[],size:p.size||10,study:!!p.study}; } }catch(e){} }
-function save(){ try{ localStorage.setItem(KEY, JSON.stringify(mem)); }catch(e){} }
+const LEGACY_KEY="issap-practice-v1";
+let KEY=LEGACY_KEY, SKEY="issap-session-v1";
+let USER=null;      // {uid,email,name,admin} when signed in, null in local-only mode
+let cloudSave=null; // set by auth.js; pushes mem to the user's cloud profile
+const blankMem=()=>({stats:{}, exams:[], size:10, study:false});
+const normMem=p=>({stats:(p&&p.stats)||{},exams:(p&&p.exams)||[],size:(p&&p.size!=null)?p.size:10,study:!!(p&&p.study)});
+let mem = blankMem();
+function readLocal(k){ try{ const r=localStorage.getItem(k); return r?JSON.parse(r):null; }catch(e){ return null; } }
+function load(){ const p=readLocal(KEY); if(p) mem=normMem(p); }
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify(mem)); }catch(e){} if(cloudSave) cloudSave(mem); }
 function saveSession(){ try{ if(S) localStorage.setItem(SKEY, JSON.stringify(S)); else localStorage.removeItem(SKEY);}catch(e){} }
 function loadSession(){ try{ const r=localStorage.getItem(SKEY); return r?JSON.parse(r):null; }catch(e){ return null; } }
-load();
 
 // ---------- helpers ----------
 const $=s=>document.querySelector(s);
@@ -114,7 +130,7 @@ const L="ABCDEFGH";
 const qhtml=s=>{const k=s.indexOf("\n\n"); return k<0?esc(s):esc(s.slice(0,k))+`<pre class="code">${esc(s.slice(k+2))}</pre>`;};
 function record(id, ok){ const s=mem.stats[id]||{s:0,c:0,w:false}; s.s++; if(ok)s.c++; s.w=!ok; mem.stats[id]=s; }
 function missedIds(){ return BANK.filter(q=>mem.stats[q.id]&&mem.stats[q.id].w).map(q=>q.id); }
-function domainStats(d){ let s=0,c=0,seen=0; BANK.filter(q=>q.d==d).forEach(q=>{const t=mem.stats[q.id]; if(t){s+=t.s;c+=t.c;seen++;}}); return {pct:s?Math.round(c/s*100):null,seen,total:BANK.filter(q=>q.d==d).length}; }
+function domainStats(d,m=mem){ let s=0,c=0,seen=0; BANK.filter(q=>q.d==d).forEach(q=>{const t=m.stats[q.id]; if(t){s+=t.s;c+=t.c;seen++;}}); return {pct:s?Math.round(c/s*100):null,seen,total:BANK.filter(q=>q.d==d).length}; }
 function pick(ids){
   const n=mem.size||ids.length;
   const score=id=>{const t=mem.stats[id]; if(!t) return 0; if(t.w) return 1; return 2+t.c/t.s;};
@@ -174,6 +190,7 @@ function renderHome(){
   const m=missedIds().length;
   const last=mem.exams.slice(-5).reverse();
   $("#app").innerHTML=`
+  ${USER?`<div class="row small" style="margin-bottom:6px"><span class="muted">Signed in as <b>${esc(USER.name||USER.email)}</b></span><span class="spacer"></span>${USER.admin?`<button id="bUsers">All users</button>`:""}<button id="bOut">Sign out</button></div>`:""}
   <h1>ISC2 ISSAP Practice</h1>
   <p class="sub">Information Systems Security Architecture Professional &middot; ${BANK.length} questions &middot; weighted to the ISC2 exam outline</p>
   <div class="grid">
@@ -194,10 +211,10 @@ function renderHome(){
     <div class="bar"><i style="width:${st.pct||0}%"></i></div></div>`}).join("")}
     <p class="note">Tap a domain to drill ${mem.size?mem.size+" questions":"every question"} from it.</p>
   </div>
-  ${last.length?`<h2>Recent exams</h2><div class="card">${last.map(x=>`<div class="row small"><span>${new Date(x.t).toLocaleDateString()}</span><span class="spacer"></span><b class="${x.p>=70?'pass':'fail'}">${x.p}%</b><span class="muted">${x.c}/${x.n}</span></div>`).join("")}</div>`:""}
+  ${last.length?`<h2>Recent exams</h2><div class="card">${last.map(x=>`<div class="row small"><span>${new Date(x.t).toLocaleDateString()}</span><span class="tag">${x.k==="mini"?"5-question":"Full"}</span><span class="spacer"></span><b class="${x.p>=70?'pass':'fail'}">${x.p}%</b><span class="muted">${x.c}/${x.n}</span></div>`).join("")}</div>`:""}
   <h2>Your data</h2>
   <div class="card small">
-    <p class="muted" style="margin-top:0">Progress saves in this browser only. Copy a backup now and then so you don't lose it.</p>
+    <p class="muted" style="margin-top:0">${USER?"Progress syncs to your account, so it follows you to any device you sign in on.":"Progress saves in this browser only. Copy a backup now and then so you don't lose it."}</p>
     <div class="row"><button id="bBackup">Backup / restore</button><button id="bReset">Reset stats</button></div>
   </div>
   <p class="note">The real exam needs 700/1000. Aim for 75%+ here before booking; ISC2 questions reward the BEST answer from a management and architecture view, not the most technical one. Questions are original study material, not exam dumps.</p>`;
@@ -206,6 +223,8 @@ function renderHome(){
   $("#bExam").onclick=startExam; $("#bMini").onclick=startMini; $("#bQuick").onclick=quick; $("#bMiss").onclick=missed;
   document.querySelectorAll("[data-d]").forEach(a=>a.onclick=e=>{e.preventDefault();drill(a.dataset.d);});
   $("#bBackup").onclick=renderBackup;
+  if($("#bOut")) $("#bOut").onclick=()=>showModal("Sign out of this device?",[["Cancel",closeModal],["Sign out",()=>{closeModal();clearInterval(timerH);S=null;window.Cloud.signOut();}]]);
+  if($("#bUsers")) $("#bUsers").onclick=renderUsers;
   $("#bReset").onclick=()=>showModal("Clear all stats and exam history?",[["Cancel",closeModal],["Clear",()=>{mem={stats:{},exams:[],size:mem.size,study:mem.study};save();closeModal();render();}]]);
 }
 
@@ -220,12 +239,13 @@ function renderBackup(){
   <div class="row"><button id="bRestore" class="primary">Restore</button><span id="rmsg" class="small"></span></div></div>`;
   $("#bBack").onclick=render;
   $("#bCopy").onclick=async()=>{ const t=$("#out"); try{ await navigator.clipboard.writeText(t.value); $("#cmsg").textContent="Copied."; }catch(e){ t.select(); $("#cmsg").textContent="Selected. Copy it manually."; } };
-  $("#bRestore").onclick=()=>{ try{ const p=JSON.parse($("#in").value); if(!p||typeof p.stats!=="object") throw 0; mem={stats:p.stats,exams:p.exams||[],size:p.size||mem.size||10,study:!!p.study}; save(); $("#rmsg").textContent="Restored."; $("#rmsg").className="small pass"; }catch(e){ $("#rmsg").textContent="That doesn't look like a valid backup."; $("#rmsg").className="small fail"; } };
+  $("#bRestore").onclick=()=>{ try{ const p=JSON.parse($("#in").value); if(!p||typeof p.stats!=="object") throw 0; mem=normMem(p); save(); $("#rmsg").textContent="Restored."; $("#rmsg").className="small pass"; }catch(e){ $("#rmsg").textContent="That doesn't look like a valid backup."; $("#rmsg").className="small fail"; } };
 }
 
 function fmt(ms){ ms=Math.max(0,ms); const m=Math.floor(ms/60000), s=Math.floor(ms%60000/1000); return m+":"+String(s).padStart(2,"0"); }
 
 function renderQuestion(){
+  clearInterval(timerH);
   const it=S.items[S.i], q=byId[it.id], sel=S.ans[S.i]||[], multi=q.a.length>1, checked=S.checked[S.i];
   const exam=S.mode==="exam", study=exam&&S.study;
   const answered=Object.keys(S.ans).filter(k=>S.ans[k]&&S.ans[k].length).length;
@@ -287,7 +307,7 @@ function finish(){
   });
   const n=Object.values(per).reduce((a,b)=>a+b.n,0);
   S.result={c,n,p:n?Math.round(c/n*100):0,per};
-  if(S.mode==="exam"&&!S.mini) mem.exams.push({t:Date.now(),c,n,p:S.result.p});
+  if(S.mode==="exam") mem.exams.push({t:Date.now(),k:S.mini?"mini":"full",study:!!S.study,c,n,p:S.result.p,per});
   save(); S.done=true; saveSession(); render(); window.scrollTo(0,0);
 }
 
@@ -313,11 +333,74 @@ function renderResults(){
   $("#bAgain").onclick=()=>{ const m=S.mode, mini=S.mini, ids=S.items.map(i=>i.id), t=S.title, k=S.kind; S=null; if(mini) startMini(); else if(m==="exam") startExam(); else startPractice(ids,t,k); };
 }
 
-// resume an in-progress session after refresh
-S=loadSession();
-if(S && S.mode==="exam" && !S.done && !(S.study||S.strict===false) && Date.now()>S.endAt){ finish(); }
-render();
+// ---------- admin: everyone's progress ----------
+function summarize(m){
+  let s=0,c=0,seen=0,miss=0;
+  Object.values(m.stats).forEach(t=>{s+=t.s;c+=t.c;seen++;if(t.w)miss++;});
+  const full=m.exams.filter(x=>x.k!=="mini");
+  return {s,c,seen,miss,acc:s?Math.round(c/s*100):null,full,last:full.length?full[full.length-1].p:null,best:full.length?Math.max(...full.map(x=>x.p)):null};
+}
+const when=t=>t?new Date(t).toLocaleDateString():"never";
+async function renderUsers(){
+  $("#app").innerHTML=`<div class="top"><button id="bBack">&larr; Back</button><b>All users</b></div><p class="muted" id="uload">Loading&hellip;</p>`;
+  $("#bBack").onclick=render;
+  let users;
+  try{ users=await window.Cloud.listUsers(); if(!$("#uload")) return; }
+  catch(e){ if(!$("#uload")) return; $("#app").innerHTML=`<div class="top"><button id="bBack">&larr; Back</button><b>All users</b></div><div class="card"><p class="fail">Couldn't load users: ${esc(e.message||e)}</p><p class="small muted">Check that your email is listed as an admin in firestore.rules and that the rules are published.</p></div>`; $("#bBack").onclick=render; return; }
+  users.sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
+  $("#app").innerHTML=`
+  <div class="top"><button id="bBack">&larr; Back</button><b>All users</b><span class="spacer"></span><span class="small muted">${users.length}</span></div>
+  <div class="card tblwrap"><table class="utbl"><thead><tr><th>User</th><th>Seen</th><th>Accuracy</th><th>Full exams</th><th>Last / best</th><th>Active</th></tr></thead><tbody>
+  ${users.map((u,i)=>{const m=normMem(u.mem), x=summarize(m); return `<tr class="click" data-u="${i}">
+    <td><b>${esc(u.name||"(no name)")}</b><div class="muted">${esc(u.email||"")}</div></td>
+    <td>${x.seen}/${BANK.length}</td>
+    <td class="${x.acc===null?'':x.acc>=70?'pass':'fail'}">${x.acc===null?"&ndash;":x.acc+"%"}</td>
+    <td>${x.full.length}</td>
+    <td>${x.last===null?"&ndash;":`<span class="${x.last>=70?'pass':'fail'}">${x.last}%</span> / ${x.best}%`}</td>
+    <td class="muted">${when(u.updatedAt)}</td></tr>`;}).join("")}
+  </tbody></table>${users.length?"":`<p class="muted">No users yet.</p>`}</div>
+  <p class="note">Tap a user for their domain breakdown and exam history.</p>`;
+  $("#bBack").onclick=render;
+  document.querySelectorAll("[data-u]").forEach(r=>r.onclick=()=>renderUser(users[+r.dataset.u]));
+}
+function renderUser(u){
+  const m=normMem(u.mem), x=summarize(m);
+  $("#app").innerHTML=`
+  <div class="top"><button id="bBack">&larr; All users</button><b>${esc(u.name||u.email||"User")}</b></div>
+  <div class="card small"><div>${esc(u.email||"")}</div><div class="muted">Last active ${when(u.updatedAt)} &middot; ${x.s} answers &middot; ${x.seen}/${BANK.length} questions seen &middot; ${x.miss} currently missed</div></div>
+  <h2>By domain</h2>
+  <div class="card">${Object.entries(DOMAINS).map(([d,dm])=>{const st=domainStats(d,m);return `
+    <div class="dom"><div class="lbl"><span>${d}.0 ${dm.name} <span class="tag">${dm.w}%</span></span><span class="muted">${st.pct===null?"not started":st.pct+"% &middot; "+st.seen+"/"+st.total+" seen"}</span></div>
+    <div class="bar"><i style="width:${st.pct||0}%"></i></div></div>`}).join("")}</div>
+  <h2>Exam history</h2>
+  <div class="card">${m.exams.length?m.exams.slice().reverse().map(e=>`<div class="row small"><span>${new Date(e.t).toLocaleString()}</span><span class="tag">${e.k==="mini"?"5-question":"Full"}${e.study?" &middot; study":""}</span><span class="spacer"></span><b class="${e.p>=70?'pass':'fail'}">${e.p}%</b><span class="muted">${e.c}/${e.n}</span></div>`).join(""):`<p class="muted">No exams yet.</p>`}</div>`;
+  $("#bBack").onclick=renderUsers;
+}
+
+// ---------- boot ----------
+// Called by auth.js: boot(null) runs local-only; boot(user, cloudMem) runs signed in.
+function boot(user, cloudMem){
+  clearInterval(timerH); closeModal();
+  USER=user||null;
+  KEY=USER?LEGACY_KEY+":"+USER.uid:LEGACY_KEY;
+  SKEY=USER?"issap-session-v1:"+USER.uid:"issap-session-v1";
+  mem=blankMem();
+  if(cloudMem) mem=normMem(cloudMem);
+  else if(USER){
+    // new account: use this device's cached copy, or adopt progress from before accounts existed
+    const local=readLocal(KEY), legacy=readLocal(LEGACY_KEY);
+    if(local) mem=normMem(local);
+    else if(legacy){ mem=normMem(legacy); try{ localStorage.removeItem(LEGACY_KEY); }catch(e){} }
+  } else load();
+  if(USER) save();
+  S=loadSession();
+  if(S && S.mode==="exam" && !S.done && !(S.study||S.strict===false) && Date.now()>S.endAt){ finish(); }
+  render();
+}
+window.boot=boot;
+window.setCloudSave=fn=>{cloudSave=fn;};
 if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js").catch(()=>{}); }
 </script>
+<script type="module" src="auth.js"></script>
 </body>
 </html>

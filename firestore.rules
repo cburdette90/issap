@@ -1,0 +1,21 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Admins can read everyone's progress. Keep this list in sync with
+    // ADMIN_EMAILS in firebase-config.js. Email must be verified
+    // (Google sign-in emails always are).
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in ['you@example.com'];
+    }
+
+    // One profile per user: users/{uid} = {name, email, mem, updatedAt}
+    match /users/{uid} {
+      allow read: if request.auth != null && (request.auth.uid == uid || isAdmin());
+      allow create, update: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['name', 'email', 'mem', 'updatedAt']);
+      allow delete: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}
